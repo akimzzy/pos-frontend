@@ -3,16 +3,32 @@ import { ref } from "vue";
 import { z } from "zod";
 import type { FormSubmitEvent } from "@nuxt/ui/dist/runtime/types";
 
-defineProps<{ signup: boolean }>();
+interface Props {
+  signup?: boolean;
+}
+const props = defineProps<Props>();
 
-const schema = z.object({
+const baseSchema = {
   email: z.string().email("Invalid email"),
-  password: z.string().min(8, "Must be at least 8 characters"),
+  password: z.string().min(6, "Must be at least 8 characters"),
+};
+
+const loginSchema = z.object({
+  ...baseSchema,
+  location: z.string().optional(),
 });
+
+const signupSchema = z.object({
+  ...baseSchema,
+  location: z.string().email("Location is required to signup"),
+});
+
+const schema = props.signup ? signupSchema : loginSchema;
 type Schema = z.output<typeof schema>;
 
 const state = ref<{
   email: string | undefined;
+  location: string | undefined;
   password: string | undefined;
   passwordType: "password" | "text";
   closeNotification: boolean;
@@ -21,24 +37,72 @@ const state = ref<{
   password: undefined,
   passwordType: "password",
   closeNotification: true,
+  location: undefined,
 });
-const toast = useToast();
+
+// const toast = useToast();
+
+const signupQuery = gql`
+  mutation createAccount($createAccountInput: CreateAccountInput!) {
+    createAccount(createAccountInput: $createAccountInput) {
+      accessToken
+      user {
+        email
+        id
+      }
+    }
+  }
+`;
+
+const loginQuery = gql`
+  mutation login($email: String!, $password: String!) {
+    login(email: $email, password: $password) {
+      accessToken
+      user {
+        email
+        id
+      }
+    }
+  }
+`;
+
+const { mutate: loginMutaion, loading: loginLoading } = useMutation(loginQuery);
+const { mutate: signupMutation, loading: signupLoading } =
+  useMutation(signupQuery);
+const { onLogin } = useApollo();
+
 async function submit(event: FormSubmitEvent<Schema>) {
-  // Do something with data
-  toast.add({ title: "Passord Incorrect", timeout: 0 });
-  console.log(event.data);
+  // toast.add({ title: "Passord Incorrect", timeout: 5 });
+  try {
+    const { email, password, location } = event.data;
+    let authData: any = null;
+
+    if (props.signup) {
+      authData = await signupMutation({
+        createAccountInput: { email, password, location },
+      });
+    } else {
+      authData = await loginMutaion({ email, password });
+    }
+
+    await onLogin(authData.data.login.accessToken);
+    navigateTo("/");
+  } catch (error) {
+    console.log(error);
+  }
 }
 </script>
 
 <template>
-  <div class="max-w-xs flex-col m-auto h-screen flex justify-center gap-14">
+  <div class="max-w-xs flex-col m-auto h-screen flex justify-center gap-10">
     <h2
       class="font-semibold text-3xl text-gray-900 dark:text-white leading-tight"
     >
       {{ signup ? "Signup" : "Login" }}
     </h2>
+
     <div class="w-full">
-      <UNotification
+      <!-- <UNotification
         v-if="state.closeNotification"
         :close-button="{ size: '2xs' }"
         class="mb-6"
@@ -46,31 +110,46 @@ async function submit(event: FormSubmitEvent<Schema>) {
         @close="() => (state.closeNotification = false)"
         :id="1"
         :timeout="0"
-      />
+      /> -->
       <UForm
-        class="w-full space-y-4 rounded-lg"
+        class="w-full space-y-8 rounded-lg"
+        :class="signupLoading || loginLoading ? 'pointer-events-none' : ''"
         :schema="schema"
         :state="state"
         @submit="submit"
       >
-        <UFormGroup label="Email" name="email">
+        <UFormGroup name="email">
+          <template #label>
+            <div class="mb-1">Email</div>
+          </template>
           <UInput
-            size="md"
+            size="lg"
             placeholder="email address"
-            icon="i-heroicons-envelope"
             v-model="state.email"
             type="email"
-            autofocus
-          >
-          </UInput>
+          />
         </UFormGroup>
-        <UFormGroup
-          :label="signup ? 'Create password' : 'Password'"
-          name="password"
-        >
+
+        <UFormGroup v-show="signup" name="location">
+          <template #label>
+            <div class="mb-1">Location</div>
+          </template>
+          <UTextarea
+            v-model="state.location"
+            size="lg"
+            placeholder="business location"
+          />
+        </UFormGroup>
+
+        <UFormGroup name="password">
+          <template #label>
+            <div class="mb-1">
+              {{ signup ? "Create password" : "Password" }}
+            </div>
+          </template>
           <UInput
-            icon="i-heroicons-lock-closed"
-            size="md"
+            placeholder="password"
+            size="lg"
             v-model="state.password"
             :type="state.passwordType"
             :ui="{ icon: { trailing: { pointer: '' } } }"
@@ -96,7 +175,11 @@ async function submit(event: FormSubmitEvent<Schema>) {
             </template>
           </UInput>
         </UFormGroup>
-        <UButton type="submit"> Submit </UButton>
+
+        <UFormGroup class="flex justify-end">
+          <NuxtLink to="/transactions">Transaction</NuxtLink>
+          <UButton type="submit"> Submit </UButton>
+        </UFormGroup>
       </UForm>
     </div>
   </div>

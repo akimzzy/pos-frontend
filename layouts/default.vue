@@ -1,6 +1,6 @@
 <template>
   <div>
-    <UNotifications />
+    <!-- DEFAULT LAYOUT -->
     <slot />
   </div>
 </template>
